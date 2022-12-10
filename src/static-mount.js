@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import GUI from 'lil-gui'; 
+import { degToRad, radToDeg } from 'three/src/math/MathUtils';
+import { getPosition } from 'suncalc';
+
 
 (function() {
 	'use strict;'
@@ -42,7 +45,7 @@ import GUI from 'lil-gui';
 	scene.add(ambientLight);
 
 	const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.8);
-	directionalLight.position.set(5, 15, 10);
+	directionalLight.position.set(5, 15, 10);	
 	directionalLight.castShadow = true;
 	directionalLight.shadow.camera.left = 20;
 	directionalLight.shadow.camera.right = -20;
@@ -50,7 +53,7 @@ import GUI from 'lil-gui';
 	directionalLight.shadow.camera.bottom = -20;	
 	scene.add(directionalLight);
 
-	const dLightHelper = new THREE.DirectionalLightHelper(directionalLight);	
+	let dLightHelper = new THREE.DirectionalLightHelper(directionalLight, 1, 0xF7EA0F);	
 	scene.add(dLightHelper);
 
 	//const dLightShadowHelper = new THREE.CameraHelper(directionalLight.shadow.camera);
@@ -69,6 +72,8 @@ import GUI from 'lil-gui';
 		scene.add( floor );	
 	}
 
+	let stopSimulation = true;
+
 	const gui = new GUI();
 	const config = {
 		panelWidth: 1.5,
@@ -77,20 +82,98 @@ import GUI from 'lil-gui';
 		rows: 4,
 		height: 0.5,
 		slope: 33,
-		distance: 4
+		distance: 4,
+		azimuth: 45,
+		elevation: 60,
+		latitude: 31.8,		// Jerusalem
+		longitude: 35.2,	// Jerusalem
+		
+		day: function() {	
+			stopSimulation = false;
+
+			let hours = []; 
+
+			[7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].forEach(h => {
+				hours.push(h);
+				hours.push(h + 0.15);
+				hours.push(h + 0.30);
+				hours.push(h + 0.45);
+			});
+						
+			const handle = setInterval(() => {
+				
+				if(hours.length == 0 || stopSimulation) {
+					clearInterval(handle);
+					return;
+				}
+				
+				const d = new Date();	
+				const h = hours.shift();
+				d.setHours(Math.floor(h));
+				d.setMinutes(100 * (h % 1));
+				d.setSeconds(0);
+				console.log(d)
+
+				
+				const pos = getPosition(d, this.latitude, this.longitude);
+				const v = new THREE.Vector3(10, 0, 0);				
+				console.log(pos)
+				
+				if(pos.altitude < 0) {
+					stopSimulation = true;
+					return;
+				}
+
+				console.log(`alt: ${radToDeg(pos.altitude)}, az: ${radToDeg(pos.azimuth)}`)
+				
+				const phi = Math.PI/2 - pos.altitude;
+				const theta =  -pos.azimuth;
+
+				
+				v.setFromSphericalCoords(20, phi, theta);					
+				directionalLight.position.set(v.x, v.y, v.z);
+				scene.remove(dLightHelper);
+				dLightHelper = new THREE.DirectionalLightHelper(directionalLight, 1, 0xF7EA0F);	
+				scene.add(dLightHelper);							
+				
+			}, 1000);						
+		},
+		stop: function() {
+			stopSimulation = true;
+		},
+		selected: function() {						
+			let v = new THREE.Vector3(10, 0, 0);
+			const phi = -1 * degToRad(90 - this.elevation);						
+			const theta = degToRad(180 + this.azimuth);
+			
+			v.setFromSphericalCoords(20, phi, theta);					
+						
+			directionalLight.position.set(v.x, v.y, v.z);
+			scene.remove(dLightHelper);
+			dLightHelper = new THREE.DirectionalLightHelper(directionalLight, 1, 0xF7EA0F);	
+			scene.add(dLightHelper);			
+		}
 	};
 
 	let rendered = false;
 
 	gui.add(config, 'panelWidth', 1, 3, 0.1).name('Panel width (m)');
-	gui.add( config, 'panelHeight', 1, 2.2, 0.1).name('Panel height (m)');
+	gui.add( config, 'panelHeight', 1, 4.5, 0.1).name('Panel height (m)');
 	gui.add( config, 'rows', 4, 10, 1 ).name('Rows');
 	gui.add( config, 'panelsInRow', 4, 20, 1 ).name('Panels in row');
-	gui.add( config, 'height', 0.5, 2 ).name('Height above ground level (m)');
+	gui.add( config, 'height', 0.1, 2 ).name('Height above ground level (m)');
 	gui.add( config, 'slope', 10, 80, 1 ).name('Slope (degrees from N)');
-	gui.add( config, 'distance', 2, 10, 0.1 ).name('Distance between rows (m)');
+	gui.add( config, 'distance', 2, 10, 0.1 ).name('Distance between rows (m)');	
+	gui.add( config, 'azimuth', -80, 80, 1 ).name('Azimuth (deg)');
+	gui.add( config, 'elevation', 5, 90, 1 ).name('Elevation (deg)');	
+	gui.add( config, 'latitude', -90, 90, 1 ).name('Latitude (deg)');	
+	gui.add( config, 'longitude', 0, 180, 1 ).name('Longitude (deg)');	
+	// buttons		
+	gui.add( config, 'selected' ).name('Render given az/el');
+	gui.add( config, 'day' ).name('Simulate day');
+	gui.add( config, 'stop' ).name('Stop simulation');
 
-	gui.onChange(e => {
+	gui.onChange(e => {		
 		rendered = false;
 	});
 
